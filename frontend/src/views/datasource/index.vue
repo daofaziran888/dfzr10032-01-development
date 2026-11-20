@@ -47,6 +47,7 @@
             >
               {{ action }}
             </button>
+            <button class="link" type="button" @click="openEdit(row)">修改接入地址</button>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -79,6 +80,31 @@
           </form>
         </div>
       </div>
+      <div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
+        <div class="modal-card">
+          <header class="modal-head">
+            <h3>修改接入地址</h3>
+            <button class="btn ghost" type="button" @click="showEditModal = false">&times;</button>
+          </header>
+          <form class="modal-body" @submit.prevent="submitEdit">
+            <p class="page-desc">
+              接入地址与采样周期一起成套生效：保存后登记新的来源版本，未领用的采集轮次整轮刷新，已领用和已派发的轮次保持原快照。
+            </p>
+            <label class="modal-field">
+              <span>接入地址</span>
+              <input v-model="editFields['接入地址']" placeholder="请输入接入地址" required />
+            </label>
+            <label class="modal-field">
+              <span>采样周期</span>
+              <input v-model="editFields['采样周期']" placeholder="如 10分钟" required />
+            </label>
+            <footer class="modal-foot">
+              <button class="btn" type="button" @click="showEditModal = false">取消</button>
+              <button class="btn primary" type="submit">保存并登记新版本</button>
+            </footer>
+          </form>
+        </div>
+      </div>
     </Teleport>
   </section>
 </template>
@@ -103,6 +129,9 @@ const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
 const showCreateModal = ref(false)
 const createFields = ref<Record<string, string>>({})
+const showEditModal = ref(false)
+const editEntryId = ref<string | number>('')
+const editFields = ref<Record<string, string>>({})
 
 function updateStats() {
   const data = rows.value
@@ -124,6 +153,34 @@ function openCreate() {
   errorMessage.value = ''
   createFields.value = {}
   showCreateModal.value = true
+}
+
+function openEdit(row: Row) {
+  errorMessage.value = ''
+  editEntryId.value = row.id ?? ''
+  editFields.value = {
+    '接入地址': String(row['接入地址'] ?? ''),
+    '采样周期': String(row['采样周期'] ?? '10分钟'),
+  }
+  showEditModal.value = true
+}
+
+async function submitEdit() {
+  errorMessage.value = ''
+  try {
+    const response = await request(`${ENDPOINT}/${editEntryId.value}`, {
+      method: 'PUT',
+      body: JSON.stringify({ values: editFields.value }),
+    })
+    const payload = await response.json()
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.message || '修改失败')
+    }
+    showEditModal.value = false
+    await reload()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '修改失败'
+  }
 }
 
 async function submitCreate() {

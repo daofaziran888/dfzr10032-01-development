@@ -8,9 +8,16 @@ from typing import Any
 
 from app.seed import SEED_ROWS
 
+# 采样轮次、派发记录和来源版本是数据源配置的从属数据，不单独占看板里的业务模块卡片。
+AUXILIARY_MODULES = {"sampling_item", "dispatch", "source_version"}
+
 
 class Store:
     def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        """把内存表恢复成示例数据，测试和本地反复演示时用。"""
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
@@ -30,6 +37,8 @@ class Store:
     def overview(self) -> dict[str, object]:
         modules: list[dict[str, object]] = []
         for name in self.module_names():
+            if name in AUXILIARY_MODULES:
+                continue
             rows = self.rows(name)
             modules.append({
                 "name": name,

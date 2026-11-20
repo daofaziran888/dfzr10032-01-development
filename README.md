@@ -49,7 +49,8 @@ npm run dev
 
 | 模块 | 目录 | 业务对象 | 主要字段 |
 | --- | --- | --- | --- |
-| 数据源配置 | `datasource` | 数据源 | 源端编号、连接类型、接入地址 |
+| 数据源配置 | `datasource` | 数据源 | 源端编号、连接类型、接入地址、采样周期 |
+| 数据源采样清单 | `sampling` | 采样轮次 / 派发记录 | 轮次、来源版本、接入地址、截止分钟 |
 | 网页采集规则 | `crawler` | 采集规则 | 规则编号、目标网址、页面选择器 |
 | API接入管理 | `apiclient` | API客户端 | 客户端编号、接口名称、请求方法 |
 | 增量采集 | `incremental` | 增量游标 | 游标编号、来源标识、增量字段 |
@@ -73,3 +74,35 @@ npm run dev
   `backend/app/routers/<模块>.py`，业务规则在 `backend/app/services/<模块>.py`。
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
+
+## 数据源采样清单
+
+采集调度不再直接读数据源配置，而是从「数据源采样清单」领用待执行项。规则集中在
+`backend/app/services/sampling.py`：
+
+- **按启用状态与周期编排**：只有「已启用」的来源生成轮次；某分钟能落轮次取决于该来源
+  采样周期（如 10 分钟只在 :00、:10、:20… 对齐）。`POST /api/sampling/rounds`
+  传 `start`/`end`（或 `start` + `count`）即可批量编排。
+- **来源版本**：来源的接入地址与采样周期一变就登记新的来源版本。轮次和派发记录都存
+  `来源版本`，地址、周期、截止分钟取自同一条版本，成套生效，不会跨版本拼接。
+- **一轮只派发一次**：同一来源同一轮次只有一条采样清单记录；领用即生成唯一派发记录，
+  并发领取只有一个能成功，其余返回已有派发编号。
+- **停用与领用并发**：领用、确认、停用共用同一把锁。停用后未派发的轮次和尚未确认的
+  派发记录全部作废，不能再确认；还没开始处理时来源被停用，领用会被直接拒绝。
+- **午间换地址**：尚未领用的轮次会在换地址时整轮刷新成新版本（地址、周期、截止分钟
+  来自同一版本）；已领用/已派发的轮次保持原快照，保证派发记录与安排一致。
+
+接口一览：
+
+```text
+GET  /api/sampling/summary                     采样看板统计
+GET  /api/sampling/items                       采样清单（status、source_id、round_key、keyword）
+POST /api/sampling/rounds                      编排采集轮次
+POST /api/sampling/items/{id}/claim            领用待执行项，生成派发记录（待确认）
+GET  /api/sampling/dispatches                  派发记录（status、source_id、round_key、valid）
+POST /api/sampling/dispatches/{id}/confirm     确认派发
+GET  /api/sampling/versions?source_id=         来源的地址/周期版本历史
+PUT  /api/datasource/{id}                      修改接入地址/采样周期，登记新版本
+```
+
+测试：`cd backend && .venv/bin/pip install pytest httpx && .venv/bin/python -m pytest tests -q`
